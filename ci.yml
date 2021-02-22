@@ -1,0 +1,69 @@
+name: Tests
+
+on: [push]
+
+jobs:
+  tests:
+    name: Run tests
+    runs-on: ubuntu-16.04
+
+    services:
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_DATABASE: database_ci
+          MYSQL_USER: user
+          MYSQL_PASSWORD: secret
+          MYSQL_ROOT_PASSWORD: secretroot
+        ports:
+          - 33306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      
+      - name: Install PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 5.6
+
+      - name: Verify MySQL connection
+        run: |
+          mysql --version
+          sudo apt-get install -y mysql-client
+          mysql --host 127.0.0.1 --port ${{ job.services.mysql.ports['3306'] }} -uuser -psecret -e "SHOW DATABASES"
+
+      - name: Cache composer dependencies
+        uses: actions/cache@v1
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+
+      - name: Install dependencies
+        run: |
+          php --version
+          composer install -n --prefer-dist
+
+      - name: Boot Laravel application
+        run: |
+          cp .env.ci .env
+          php artisan key:generate
+          php artisan --version
+
+      - name: Migrate database
+        run: |
+          mysql --version
+          php artisan migrate
+
+      - name: Run tests
+        run: |
+          ./vendor/bin/phpunit --version
+          ./vendor/bin/phpunit
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@master
+        if: failure()
+        with:
+          name: Logs
+          path: ./storage/logs
